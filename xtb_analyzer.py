@@ -25,14 +25,32 @@ from datetime import datetime, timezone, timedelta
 # 1. BINANCE API
 # ──────────────────────────────────────────────────────────────
 
-BINANCE_BASE = "https://api.binance.com"
+# Nhiều endpoint để retry khi bị block (GitHub Actions bị Binance chặn IP)
+BINANCE_ENDPOINTS = [
+    "https://api.binance.com",
+    "https://api1.binance.com",
+    "https://api2.binance.com",
+    "https://api3.binance.com",
+    "https://data-api.binance.vision",
+]
+
+def _binance_request(path: str, timeout: int = 15):
+    """Gọi Binance API với retry qua nhiều endpoint."""
+    last_error = None
+    for base in BINANCE_ENDPOINTS:
+        url = f"{base}{path}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "XTB-Analyzer/4.0"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode())
+        except Exception as e:
+            last_error = e
+            continue
+    raise last_error or Exception("Tất cả Binance endpoints đều thất bại")
 
 def fetch_klines(symbol: str, interval: str, limit: int = 200) -> list[dict]:
     """Lấy dữ liệu nến từ Binance. Trả về list dict."""
-    url = f"{BINANCE_BASE}/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
-    req = urllib.request.Request(url, headers={"User-Agent": "XTB-Analyzer/3.0"})
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        raw = json.loads(resp.read().decode())
+    raw = _binance_request(f"/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}")
     candles = []
     for k in raw:
         candles.append({
@@ -49,10 +67,7 @@ def fetch_klines(symbol: str, interval: str, limit: int = 200) -> list[dict]:
 
 def fetch_price(symbol: str) -> float:
     """Lấy giá hiện tại."""
-    url = f"{BINANCE_BASE}/api/v3/ticker/price?symbol={symbol}"
-    req = urllib.request.Request(url, headers={"User-Agent": "XTB-Analyzer/3.0"})
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        data = json.loads(resp.read().decode())
+    data = _binance_request(f"/api/v3/ticker/price?symbol={symbol}", timeout=10)
     return float(data["price"])
 
 # ──────────────────────────────────────────────────────────────
