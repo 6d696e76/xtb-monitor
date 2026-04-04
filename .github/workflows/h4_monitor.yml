@@ -1,0 +1,33 @@
+name: XTB H4 Monitor
+
+on:
+  schedule:
+    # Chạy 5 phút sau mỗi nến H4 đóng (UTC)
+    # H4 close: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC
+    # Tương đương GMT+7: 07:05, 11:05, 15:05, 19:05, 23:05, 03:05
+    - cron: '5 0,4,8,12,16,20 * * *'
+
+  # Cho phép chạy thủ công từ GitHub UI
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run H4 Analysis
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SYMBOLS: BTCUSDT,BNBUSDT,LINKUSDT
+          SIDE: buy
+        run: python3 xtb_cloud.py
