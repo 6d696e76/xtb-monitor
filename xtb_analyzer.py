@@ -22,41 +22,85 @@ import urllib.request
 from datetime import datetime, timezone, timedelta
 
 # ──────────────────────────────────────────────────────────────
-# 1. BINANCE API
+# 1. DATA API (Binance → OKX fallback)
 # ──────────────────────────────────────────────────────────────
 
-# Nhiều endpoint để retry khi bị block (GitHub Actions ở Mỹ → dùng binance.us)
+# Binance endpoints (ưu tiên khi chạy local)
 BINANCE_ENDPOINTS = [
-    "https://api.binance.us",           # US-accessible (GitHub Actions)
     "https://api.binance.com",
     "https://api1.binance.com",
     "https://api2.binance.com",
     "https://api3.binance.com",
-    "https://data-api.binance.vision",
 ]
 
-def _binance_request(path: str, timeout: int = 15):
-    """Gọi Binance API với retry qua nhiều endpoint."""
-    last_error = None
+# OKX interval mapping: Binance format → OKX format
+_OKX_INTERVAL_MAP = {
+    "1h": "1H", "4h": "4H", "12h": "12H",
+    "1d": "1Dutc", "3d": "3Dutc", "1w": "1Wutc",
+}
+
+def _http_get(url: str, timeout: int = 15):
+    """HTTP GET trả về parsed JSON."""
+    req = urllib.request.Request(url, headers={"User-Agent": "XTB-Analyzer/4.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+def _fetch_klines_binance(symbol: str, interval: str, limit: int) -> list | None:
+    """Thử lấy klines từ Binance. Trả None nếu tất cả endpoint thất bại."""
     for base in BINANCE_ENDPOINTS:
-        url = f"{base}{path}"
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "XTB-Analyzer/4.0"})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return json.loads(resp.read().decode())
-        except Exception as e:
-            last_error = e
+            url = f"{base}/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
+            return _http_get(url)
+        except Exception:
             continue
-    raise last_error or Exception("Tất cả Binance endpoints đều thất bại")
+    return None
+
+def _fetch_klines_okx(symbol: str, interval: str, limit: int) -> list:
+    """Lấy klines từ OKX (fallback khi Binance bị chặn)."""
+    base_coin = symbol.replace("USDT", "")
+    okx_symbol = f"{base_coin}-USDT"
+    okx_interval = _OKX_INTERVAL_MAP.get(interval, interval.upper())
+    url = f"https://www.okx.com/api/v5/market/candles?instId={okx_symbol}&bar={okx_interval}&limit={limit}"
+    data = _http_get(url)
+    if data.get("code") != "0":
+        raise Exception(f"OKX error: {data.get('msg', 'Unknown')}")
+    # OKX trả về newest-first → đảo lại, convert sang Binance format
+    rows = data["data"][::-1]  # reverse → oldest-first
+    result = []
+    for r in rows:
+        # OKX: [ts, open, high, low, close, vol, volCcy, volCcyQuote, confirm]
+        ts_ms = int(r[0])
+        result.append([
+            ts_ms,           # open time ms
+            r[1],            # open
+            r[2],            # high
+            r[3],            # low
+            r[4],            # close
+            r[5],            # volume
+            ts_ms,           # close time ms (approximate)
+        ])
+    return result
+
+def _fetch_price_okx(symbol: str) -> float:
+    """Lấy giá từ OKX."""
+    base_coin = symbol.replace("USDT", "")
+    okx_symbol = f"{base_coin}-USDT"
+    url = f"https://www.okx.com/api/v5/market/ticker?instId={okx_symbol}"
+    data = _http_get(url)
+    if data.get("code") != "0":
+        raise Exception(f"OKX price error: {data.get('msg')}")
+    return float(data["data"][0]["last"])
 
 def fetch_klines(symbol: str, interval: str, limit: int = 200) -> list[dict]:
-    """Lấy dữ liệu nến từ Binance. Trả về list dict."""
-    raw = _binance_request(f"/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}")
+    """Lấy dữ liệu nến. Thử Binance trước, fallback sang OKX."""
+    raw = _fetch_klines_binance(symbol, interval, limit)
+    if raw is None:
+        raw = _fetch_klines_okx(symbol, interval, limit)
     candles = []
     for k in raw:
         candles.append({
-            "time": datetime.fromtimestamp(k[0] / 1000, tz=timezone.utc),
-            "close_time": datetime.fromtimestamp(k[6] / 1000, tz=timezone.utc),
+            "time": datetime.fromtimestamp(int(k[0]) / 1000, tz=timezone.utc),
+            "close_time": datetime.fromtimestamp(int(k[6]) / 1000, tz=timezone.utc),
             "open": float(k[1]),
             "high": float(k[2]),
             "low": float(k[3]),
@@ -67,9 +111,14 @@ def fetch_klines(symbol: str, interval: str, limit: int = 200) -> list[dict]:
     return candles
 
 def fetch_price(symbol: str) -> float:
-    """Lấy giá hiện tại."""
-    data = _binance_request(f"/api/v3/ticker/price?symbol={symbol}", timeout=10)
-    return float(data["price"])
+    """Lấy giá hiện tại. Thử Binance trước, fallback sang OKX."""
+    for base in BINANCE_ENDPOINTS:
+        try:
+            data = _http_get(f"{base}/api/v3/ticker/price?symbol={symbol}", timeout=10)
+            return float(data["price"])
+        except Exception:
+            continue
+    return _fetch_price_okx(symbol)
 
 # ──────────────────────────────────────────────────────────────
 # 2. CHỈ BÁO KỸ THUẬT
