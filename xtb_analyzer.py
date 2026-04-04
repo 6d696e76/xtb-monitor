@@ -25,8 +25,9 @@ from datetime import datetime, timezone, timedelta
 # 1. BINANCE API
 # ──────────────────────────────────────────────────────────────
 
-# Nhiều endpoint để retry khi bị block (GitHub Actions bị Binance chặn IP)
+# Nhiều endpoint để retry khi bị block (GitHub Actions ở Mỹ → dùng binance.us)
 BINANCE_ENDPOINTS = [
+    "https://api.binance.us",           # US-accessible (GitHub Actions)
     "https://api.binance.com",
     "https://api1.binance.com",
     "https://api2.binance.com",
