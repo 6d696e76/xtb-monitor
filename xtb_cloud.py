@@ -48,8 +48,8 @@ SIDE = "buy"
 
 TZ_VN = timezone(timedelta(hours=7))
 
-# Anti-duplicate: chỉ gửi nếu cách H4 close ≤ MAX_DELAY phút
-MAX_DELAY_MINUTES = 30
+# State file để chống duplicate (persist qua GitHub Actions Cache)
+STATE_FILE = os.environ.get("STATE_FILE", os.path.join(SCRIPT_DIR, "last_sent.txt"))
 
 # ──────────────────────────────────────────────────────────────
 # TELEGRAM
@@ -79,25 +79,37 @@ def send_telegram(message: str):
 
 
 # ──────────────────────────────────────────────────────────────
-# ANTI-DUPLICATE GUARD
+# ANTI-DUPLICATE: STATE FILE
 # ──────────────────────────────────────────────────────────────
 
-def is_within_h4_window() -> bool:
-    """Kiểm tra xem hiện tại có nằm trong cửa sổ cho phép gửi (≤ MAX_DELAY phút sau H4 close)."""
+def get_current_h4_key() -> str:
+    """Trả về H4 close key gần nhất (ISO format UTC), VD: '2026-04-05T00:00Z'."""
     now = datetime.now(timezone.utc)
     h4_hours = [0, 4, 8, 12, 16, 20]
 
-    # Tìm H4 close gần nhất đã qua
     for h in reversed(h4_hours):
         candidate = now.replace(hour=h, minute=0, second=0, microsecond=0)
         if candidate <= now:
-            elapsed = (now - candidate).total_seconds() / 60
-            return elapsed <= MAX_DELAY_MINUTES
+            return candidate.strftime("%Y-%m-%dT%H:%MZ")
 
-    # Nếu trước 00:00 UTC hôm nay → so với 20:00 UTC hôm qua
+    # Trước 00:00 UTC → H4 close = 20:00 UTC hôm qua
     yesterday_20 = (now - timedelta(days=1)).replace(hour=20, minute=0, second=0, microsecond=0)
-    elapsed = (now - yesterday_20).total_seconds() / 60
-    return elapsed <= MAX_DELAY_MINUTES
+    return yesterday_20.strftime("%Y-%m-%dT%H:%MZ")
+
+
+def read_state() -> str:
+    """Đọc H4 key đã gửi lần cuối. Trả về '' nếu chưa có."""
+    try:
+        with open(STATE_FILE, "r") as f:
+            return f.read().strip()
+    except FileNotFoundError:
+        return ""
+
+
+def write_state(h4_key: str):
+    """Ghi H4 key đã gửi thành công."""
+    with open(STATE_FILE, "w") as f:
+        f.write(h4_key)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -137,11 +149,13 @@ def main():
     force = "--force" in sys.argv
     argv_clean = [a for a in sys.argv[1:] if a != "--force"]
 
-    # Anti-duplicate guard
-    if not force and not is_within_h4_window():
+    # Anti-duplicate: check state file
+    h4_key = get_current_h4_key()
+    last_sent = read_state()
+    if not force and last_sent == h4_key:
         now_vn = datetime.now(TZ_VN)
-        print(f"⏭️  SKIP: {now_vn.strftime('%H:%M')} GMT+7 — cách H4 close > {MAX_DELAY_MINUTES} phút.")
-        print(f"   Có thể do GitHub Actions delay/duplicate. Dùng --force để bỏ qua.")
+        print(f"⏭️  SKIP: H4 close {h4_key} đã gửi rồi. ({now_vn.strftime('%H:%M')} GMT+7)")
+        print(f"   Dùng --force để gửi lại.")
         return
 
     # Parse symbols từ args hoặc env
@@ -177,7 +191,8 @@ def main():
     print("=" * 60)
     print(f"  🔍 XTB-SPRINGTEA CLOUD MONITOR")
     print(f"  🕐 {now.strftime('%d/%m/%Y %H:%M:%S')} (GMT+7)")
-    print(f"  📊 Cặp: {', '.join(symbols)}")
+    print(f"  �️ H4 close: {h4_key}")
+    print(f"  �📊 Cặp: {', '.join(symbols)}")
     print(f"  🎯 Chiến lược: {'BUY (LONG)' if side == 'buy' else 'SELL (SHORT)'}")
     print("=" * 60)
     print()
@@ -205,6 +220,11 @@ def main():
             print(f"   ❌ Không có kết quả cho {symbol}")
             fail_count += 1
 
+    # Ghi state nếu có ít nhất 1 thành công
+    if success_count > 0:
+        write_state(h4_key)
+        print(f"  📝 State saved: {h4_key}")
+
     # Summary
     print()
     print("=" * 60)
@@ -212,7 +232,7 @@ def main():
     print("=" * 60)
     print()
 
-    # Exit code cho CI
+    # Exit code cho CI — chỉ fail nếu KHÔNG gửi được gì
     if fail_count > 0 and success_count == 0:
         sys.exit(1)
 
