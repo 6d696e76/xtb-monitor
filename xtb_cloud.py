@@ -48,6 +48,9 @@ SIDE = "buy"
 
 TZ_VN = timezone(timedelta(hours=7))
 
+# Anti-duplicate: chỉ gửi nếu cách H4 close ≤ MAX_DELAY phút
+MAX_DELAY_MINUTES = 30
+
 # ──────────────────────────────────────────────────────────────
 # TELEGRAM
 # ──────────────────────────────────────────────────────────────
@@ -73,6 +76,28 @@ def send_telegram(message: str):
     except Exception as e:
         print(f"   ❌ Telegram error: {e}")
         return False
+
+
+# ──────────────────────────────────────────────────────────────
+# ANTI-DUPLICATE GUARD
+# ──────────────────────────────────────────────────────────────
+
+def is_within_h4_window() -> bool:
+    """Kiểm tra xem hiện tại có nằm trong cửa sổ cho phép gửi (≤ MAX_DELAY phút sau H4 close)."""
+    now = datetime.now(timezone.utc)
+    h4_hours = [0, 4, 8, 12, 16, 20]
+
+    # Tìm H4 close gần nhất đã qua
+    for h in reversed(h4_hours):
+        candidate = now.replace(hour=h, minute=0, second=0, microsecond=0)
+        if candidate <= now:
+            elapsed = (now - candidate).total_seconds() / 60
+            return elapsed <= MAX_DELAY_MINUTES
+
+    # Nếu trước 00:00 UTC hôm nay → so với 20:00 UTC hôm qua
+    yesterday_20 = (now - timedelta(days=1)).replace(hour=20, minute=0, second=0, microsecond=0)
+    elapsed = (now - yesterday_20).total_seconds() / 60
+    return elapsed <= MAX_DELAY_MINUTES
 
 
 # ──────────────────────────────────────────────────────────────
@@ -108,11 +133,22 @@ def analyze_symbol(symbol: str, side: str = "buy") -> str | None:
 # ──────────────────────────────────────────────────────────────
 
 def main():
+    # Kiểm tra --force flag
+    force = "--force" in sys.argv
+    argv_clean = [a for a in sys.argv[1:] if a != "--force"]
+
+    # Anti-duplicate guard
+    if not force and not is_within_h4_window():
+        now_vn = datetime.now(TZ_VN)
+        print(f"⏭️  SKIP: {now_vn.strftime('%H:%M')} GMT+7 — cách H4 close > {MAX_DELAY_MINUTES} phút.")
+        print(f"   Có thể do GitHub Actions delay/duplicate. Dùng --force để bỏ qua.")
+        return
+
     # Parse symbols từ args hoặc env
     symbols = []
 
     # 1. Từ command-line args
-    for arg in sys.argv[1:]:
+    for arg in argv_clean:
         sym = arg.upper()
         if not sym.endswith("USDT"):
             sym += "USDT"
