@@ -24,10 +24,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Restore state cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: last_sent.txt
-          key: h4-state
+          key: h4-state-dummy
+          restore-keys: h4-state-
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -41,3 +42,11 @@ jobs:
           SYMBOLS: BTCUSDT,BNBUSDT,LINKUSDT
           SIDE: buy
         run: python3 xtb_cloud.py
+
+      - name: Save state cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: last_sent.txt
+          key: h4-state-${{ github.run_id }}
+
