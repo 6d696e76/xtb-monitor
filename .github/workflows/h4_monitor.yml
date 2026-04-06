@@ -2,12 +2,11 @@ name: XTB H4 Monitor
 
 on:
   schedule:
-    # Retry 3 lần mỗi H4 close: +5min, +15min, +25min
-    # H4 close: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC
-    # State file sẽ chặn duplicate — chỉ lần đầu thành công mới gửi
-    - cron: '5,15,25 0,4,8,12,16,20 * * *'
+    # BACKUP: chạy +25 phút sau H4 close, phòng cron-job.org miss
+    # Primary trigger: cron-job.org → workflow_dispatch (chính xác ~30s)
+    - cron: '25 0,4,8,12,16,20 * * *'
 
-  # Cho phép chạy thủ công từ GitHub UI
+  # Trigger chính từ cron-job.org + manual
   workflow_dispatch:
 
 concurrency:
@@ -39,7 +38,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          SYMBOLS: BTCUSDT,BNBUSDT,LINKUSDT
+          SYMBOLS: BTCUSDT,BNBUSDT,LINKUSDT,HNTUSDT
           SIDE: buy
         run: python3 xtb_cloud.py
 
