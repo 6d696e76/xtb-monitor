@@ -814,7 +814,7 @@ def analyze_timeframe(symbol: str, interval: str, label: str) -> dict:
             buy_signal = "POINT_2"
         else:
             buy_signal = "APPROACHING"
-    elif rsi_now and rsi_now <= 35:
+    elif rsi_above_ema is False and rsi_above_wma is False and rsi_now and rsi_now <= 35:
         buy_signal = "POINT_1_ZONE"
 
     # Đánh giá tín hiệu SELL
@@ -825,7 +825,7 @@ def analyze_timeframe(symbol: str, interval: str, label: str) -> dict:
         sell_signal = "POINT_3"
     elif rsi_below_ema is True and rsi_below_wma is False:
         sell_signal = "POINT_2"
-    elif rsi_now and rsi_now >= 65:
+    elif rsi_below_ema is False and rsi_below_wma is False and rsi_now and rsi_now >= 65:
         sell_signal = "POINT_1_ZONE"
 
     return {
