@@ -870,12 +870,15 @@ def analyze_timeframe(symbol: str, interval: str, label: str) -> dict:
         rsi_zone = "N/A"
 
     # Đánh giá tín hiệu BUY (theo sơ đồ Form Buy - Springtea)
-    # P3: RSI > EMA > WMA → xu hướng xác nhận
+    # P3: RSI > EMA > WMA + RSI đang tăng → xu hướng xác nhận
     # P2: RSI > EMA, RSI < WMA → cân bằng, chờ xác nhận
     # P1: RSI < EMA < WMA, RSI đang hồi phục (delta > 0) → bắt đáy
+    # ⚠️ RSI > cả 2 đường NHƯNG delta < 0 → KHÔNG buy P3 (form sell)
     buy_signal = "NONE"
     if rsi_above_ema and rsi_above_wma:
-        buy_signal = "POINT_3"
+        if rsi_delta is None or rsi_delta >= 0:
+            buy_signal = "POINT_3"
+        # else: RSI đang rơi từ đỉnh → form sell bắt đầu, skip buy
     elif rsi_above_ema is True and rsi_above_wma is False:
         if rsi_now and wma_now and abs(rsi_now - wma_now) < 5:
             buy_signal = "POINT_2"
@@ -887,20 +890,22 @@ def analyze_timeframe(symbol: str, interval: str, label: str) -> dict:
             buy_signal = "POINT_1_ZONE"
 
     # Đánh giá tín hiệu SELL (theo sơ đồ Form Sell - Springtea)
-    # P3: RSI < EMA < WMA → xu hướng giảm xác nhận
+    # P3: RSI < EMA < WMA + RSI đang giảm → xu hướng giảm xác nhận
     # P2: RSI < EMA, RSI > WMA → cắt xuống EMA, chờ
-    # P1: RSI > EMA > WMA, RSI đang rơi (delta < 0) → bắt đỉnh
+    # P1: RSI > EMA > WMA + RSI đang rơi → form sell bắt đầu
+    # ⚠️ RSI < cả 2 đường NHƯNG delta > 0 → KHÔNG sell P3 (form buy)
     sell_signal = "NONE"
     rsi_below_ema = (rsi_now < ema_now) if (rsi_now and ema_now) else None
     rsi_below_wma = (rsi_now < wma_now) if (rsi_now and wma_now) else None
     if rsi_below_ema and rsi_below_wma:
-        sell_signal = "POINT_3"
+        if rsi_delta is None or rsi_delta <= 0:
+            sell_signal = "POINT_3"
+        # else: RSI đang hồi phục từ đáy → form buy, skip sell P3
     elif rsi_below_ema is True and rsi_below_wma is False:
         sell_signal = "POINT_2"
-    elif rsi_below_ema is False and rsi_below_wma is False and rsi_now and rsi_now >= 55:
-        # Điểm 1: RSI trên cả 2 đường + đang rơi (delta < 0)
-        if rsi_delta is not None and rsi_delta < 0:
-            sell_signal = "POINT_1_ZONE"
+    elif rsi_above_ema and rsi_above_wma and rsi_delta is not None and rsi_delta < 0:
+        # Sell P1: RSI trên cả 2 đường nhưng đang rơi → form sell bắt đầu
+        sell_signal = "POINT_1_ZONE"
 
     return {
         "label": label,
