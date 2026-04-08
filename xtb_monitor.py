@@ -264,7 +264,7 @@ def format_telegram_rich(symbol: str, results: list[dict],
         if ts == "TRAP_HIGH_ACTIVE":
             para += " Có trap đỉnh đang hoạt động → giá vẫn còn lực để leo lên trả trap."
         elif ts == "TRAP_LOW_ACTIVE":
-            para += f" Có trap đáy đang hoạt động (RSI trước đó chạm ≤20) → kỳ vọng giá sẽ vòng lên trả trap."
+            para += f" Có trap đáy đang hoạt động (RSI trước đó chạm ≤20) → kỳ vọng giá sẽ vòng xuống trả trap (test lại đáy cũ)."
         elif ts == "TRAP_HIGH_BROKEN":
             para += " Trap đỉnh đã HỎNG — xu hướng giảm mạnh!"
         elif ts == "TRAP_LOW_BROKEN":
@@ -302,7 +302,7 @@ def format_telegram_rich(symbol: str, results: list[dict],
 
         # ── Nhận định đặc biệt ──
         if ts == "TRAP_LOW_ACTIVE" and sig_val in ("POINT_3", "POINT_2"):
-            lines.append(f'💡 Nhận định: {label} đang trong quá trình trả trap đáy. "RSI sẽ điều chỉnh, cuộn dần tạo form buy, vượt lên 45, giá bằng hoặc cao hơn đỉnh cũ → hoàn thành trả trap."')
+            lines.append(f'💡 Nhận định: {label} đang trong quá trình trả trap đáy. "RSI sẽ điều chỉnh, cuộn dần tạo form sell, cắt xuống 45, giá bằng hoặc thấp hơn đáy cũ → hoàn thành trả trap."')
         elif ts == "TRAP_HIGH_ACTIVE" and sig_val in ("POINT_2", "APPROACHING"):
             lines.append(f'💡 Nhận định: {label} có trap đỉnh nhưng RSI đang hướng lên → giá kỳ vọng leo lên trả trap đỉnh.')
         elif ft == "CURL_BUY" and ts == "TRAP_LOW_ACTIVE":
@@ -381,7 +381,7 @@ def format_telegram_rich(symbol: str, results: list[dict],
     trap_high = [t for t in active_traps if t[1] == "đỉnh"]
     if trap_low:
         labels = " và ".join(t[0] for t in trap_low)
-        overview_parts.append(f"{labels} đang trả trap đáy → xác suất tiếp tục tăng cao (~70%)")
+        overview_parts.append(f"{labels} đang trả trap đáy → xác suất tiếp tục giảm cao (~70%)")
     if breakouts:
         labels = " và ".join(breakouts)
         overview_parts.append(f"{labels} breakout lên → đà tăng đang được xác nhận")
