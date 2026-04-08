@@ -1228,9 +1228,9 @@ def print_report(symbol: str, results: list[dict], side: str, price: float):
         elif ts == "TRAP_LOW_ACTIVE":
             alerts.append(f"  ⚠️ {r['label']}: TRAP ĐÁY đang hoạt động — chờ trả trap!")
         elif ts == "TRAP_HIGH_BROKEN":
-            alerts.append(f"  🚨 {r['label']}: Trap đỉnh đã HỎMG — xu hướng giảm mạnh!")
+            alerts.append(f"  🚨 {r['label']}: Trap đỉnh đã HỎNG — xu hướng giảm mạnh!")
         elif ts == "TRAP_LOW_BROKEN":
-            alerts.append(f"  🚨 {r['label']}: Trap đáy đã HỌNG — xu hướng tăng mạnh!")
+            alerts.append(f"  🚨 {r['label']}: Trap đáy đã HỎNG — xu hướng tăng mạnh!")
         elif ts == "TRAP_HIGH_PAID":
             alerts.append(f"  ✅ {r['label']}: Trap đỉnh đã TRẢ — đỉnh mới đã lập.")
         elif ts == "TRAP_LOW_PAID":

@@ -306,7 +306,7 @@ def format_telegram_rich(symbol: str, results: list[dict],
         elif ts == "TRAP_HIGH_ACTIVE" and sig_val in ("POINT_2", "APPROACHING"):
             lines.append(f'💡 Nhận định: {label} có trap đỉnh nhưng RSI đang hướng lên → giá kỳ vọng leo lên trả trap đỉnh.')
         elif ft == "CURL_BUY" and ts == "TRAP_LOW_ACTIVE":
-            lines.append(f'💡 Nhận định: {label} đang ở giai đoạn đẹp — 3 đường cuộn lại, cuộn xong breakout lên sẽ kéo các khung bé theo.')
+            lines.append(f'⚠️ Lưu ý: {label} đang cuộn form buy nhưng có trap đáy chưa trả — đây có thể chỉ là nhịp hồi kỹ thuật trước khi giá quay xuống test đáy cũ.')
 
         # ── Exit warning ──
         exit_key = r.get("exit_buy") if side == "buy" else r.get("exit_sell")
