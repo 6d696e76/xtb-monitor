@@ -1107,6 +1107,77 @@ def evaluate_consensus(results: list[dict], side: str = "buy") -> dict:
                     f"→ cháu đi ngược ông, có thể chỉ là nhịp điều chỉnh."
                 )
 
+    # ── Phát hiện Cascade: cháu kéo ông ──
+    # Khi các khung bé liên tiếp đồng thuận mạnh + có form/breakout
+    # → chúng có thể "kéo" khung lớn hơn theo
+    # Chain: H4 → H12 → D1 → 3D → W
+    cascade_chain = []   # list of (label, direction)
+    cascade_notes = []
+    chain_order = ["H4", "H12", "D1", "3D", "W"]
+    result_map = {r["label"]: r for r in results}
+
+    # Tìm chuỗi cascade liên tiếp từ khung bé nhất
+    STRONG_BIAS = 0.4
+    for label in chain_order:
+        b = frame_biases.get(label, 0)
+        r = result_map.get(label)
+        if r is None:
+            break
+
+        # Khung bé phải có momentum mạnh (bias rõ ràng)
+        if abs(b) >= STRONG_BIAS:
+            direction = "BUY" if b > 0 else "SELL"
+            cascade_chain.append((label, direction, b))
+        elif abs(b) >= 0.1 and len(cascade_chain) > 0:
+            # Khung đang "bị kéo" — chưa mạnh nhưng có chuyển biến
+            prev_dir = cascade_chain[-1][1]
+            current_dir = "BUY" if b > 0 else "SELL" if b < 0 else "NEUTRAL"
+            if current_dir == prev_dir or current_dir == "NEUTRAL":
+                cascade_chain.append((label, prev_dir, b))
+            else:
+                break  # Chuỗi bị đứt
+        else:
+            break  # Không đủ momentum, chuỗi dừng
+
+    cascade_strength = len(cascade_chain)
+    cascade_direction = cascade_chain[0][1] if cascade_chain else None
+
+    # Detect form/breakout làm tăng sức kéo
+    cascade_has_form = False
+    cascade_has_breakout = False
+    for label, direction, _ in cascade_chain:
+        r = result_map.get(label)
+        if r:
+            ft = r.get("form_type", "NONE")
+            if ft.startswith("CURL_"):
+                cascade_has_form = True
+            if ft.startswith("BREAKOUT_"):
+                cascade_has_breakout = True
+
+    # Generate cascade notes
+    if cascade_strength >= 2:
+        chain_str = " → ".join(
+            f"{hierarchy_labels.get(l, l)}({'↑' if d == 'BUY' else '↓'})"
+            for l, d, _ in cascade_chain
+        )
+        note = f"🔗 Chuỗi cascade {cascade_direction}: {chain_str}"
+        if cascade_has_breakout:
+            note += " + có BREAKOUT → lực kéo rất mạnh!"
+        elif cascade_has_form:
+            note += " + đang có form → lực kéo mạnh"
+        cascade_notes.append(note)
+
+        # Nếu cascade kéo đến khung lớn
+        pulled_labels = [l for l, _, _ in cascade_chain]
+        if "D1" in pulled_labels and "H12" in pulled_labels:
+            cascade_notes.append(
+                f"📈 H4+H12 đang kéo D1 → nếu đủ mạnh sẽ kéo 3D theo"
+            )
+        if "3D" in pulled_labels:
+            cascade_notes.append(
+                f"🚀 Cascade đã lan tới 3D → xu hướng {cascade_direction} đang hình thành ở khung lớn"
+            )
+
     # ── Đánh giá đồng thuận ──
     consensus_level = "KHÔNG ĐỒNG THUẬN"
     if total_with_signal >= 4:
@@ -1142,21 +1213,33 @@ def evaluate_consensus(results: list[dict], side: str = "buy") -> dict:
     rsi_rising_count = sum(1 for r in results if (r.get("rsi_delta") or 0) > 0)
     rsi_falling_count = sum(1 for r in results if (r.get("rsi_delta") or 0) < 0)
 
-    # ── Recommendation — ông nói phải nghe ──
+    # ── Recommendation — ông nói phải nghe + cascade ──
     w_bias = frame_biases.get("W", 0)
     d3_bias = frame_biases.get("3D", 0)
+
+    # Cascade có thể override khi khung lớn neutral
+    cascade_override = False
+    trade_dir = "BUY" if side == "buy" else "SELL"
+    if (cascade_strength >= 3 and cascade_direction == trade_dir
+            and (cascade_has_form or cascade_has_breakout)):
+        cascade_override = True
 
     recommendation = "❌ KHÔNG VÀO LỆNH"
     if len(violations) > 0:
         recommendation = "⛔ VI PHẠM QUY TẮC — KHÔNG VÀO LỆNH"
-    elif w_bias < -0.3:
-        # Ông nói sell → cấm buy (hoặc ngược lại)
+    elif w_bias < -0.3 and not cascade_override:
         recommendation = "🚫 ÔNG (W) ĐANG NGƯỢC CHIỀU — KHÔNG VÀO LỆNH"
+    elif w_bias < -0.3 and cascade_override:
+        recommendation = (f"⚠️ Ông (W) ngược chiều NHƯNG cascade {cascade_direction} "
+                          f"mạnh ({cascade_strength} khung) → CÂN NHẮC KỸ")
     elif total_with_signal >= 2 and has_signal(large_frames):
         if weighted_pct >= 40:
             recommendation = f"✅ VÀO LỆNH {'BUY' if side == 'buy' else 'SELL'} — đồng thuận từ khung lớn"
         else:
             recommendation = f"✅ CÓ THỂ VÀO LỆNH {'BUY' if side == 'buy' else 'SELL'}"
+    elif total_with_signal >= 2 and cascade_override:
+        recommendation = (f"✅ CÓ THỂ VÀO LỆNH {trade_dir} — "
+                          f"cascade {cascade_strength} khung đang kéo lên")
     elif total_with_signal >= 2:
         if d3_bias < -0.3:
             recommendation = "⚠️ CÂN NHẮC — Bố (3D) đang ngược chiều"
@@ -1182,6 +1265,11 @@ def evaluate_consensus(results: list[dict], side: str = "buy") -> dict:
         "weighted_score": weighted_score,
         "weighted_pct": weighted_pct,
         "conflicts": conflicts,
+        # v4.2 — Cascade (cháu kéo ông)
+        "cascade_strength": cascade_strength,
+        "cascade_direction": cascade_direction,
+        "cascade_notes": cascade_notes,
+        "cascade_override": cascade_override,
     }
 
 
