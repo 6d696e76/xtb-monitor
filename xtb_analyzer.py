@@ -986,7 +986,9 @@ def evaluate_consensus(results: list[dict], side: str = "buy") -> dict:
     [v4.2] Đánh giá đồng thuận đa khung thời gian theo nguyên tắc
     "Cố Ông Cha Con Cháu" của Springtea — khung lớn nói, khung bé phải nghe.
 
-    Trọng số:  W=5 (Cố) | 3D=4 (Ông) | D1=3 (Cha) | H12=2 (Con) | H4=1 (Cháu)
+    Trọng số = số nến H4 chứa trong mỗi khung:
+    W=42 (Cố) | 3D=18 (Ông) | D1=6 (Cha) | H12=3 (Con) | H4=1 (Cháu)
+    Tổng = 70. W chiếm 60% ảnh hưởng.
 
     Bias per frame: BUY / SELL / NEUTRAL dựa trên:
       - Signal (P1/P2/P3) → mạnh nhất
@@ -996,8 +998,8 @@ def evaluate_consensus(results: list[dict], side: str = "buy") -> dict:
     signal_key = "buy_signal" if side == "buy" else "sell_signal"
     opposite_key = "sell_signal" if side == "buy" else "buy_signal"
 
-    # ── Trọng số theo Springtea hierarchy ──
-    WEIGHTS = {"W": 5, "3D": 4, "D1": 3, "H12": 2, "H4": 1}  # tổng = 15
+    # ── Trọng số = số nến H4 / khung (tỷ lệ tự nhiên) ──
+    WEIGHTS = {"W": 42, "3D": 18, "D1": 6, "H12": 3, "H4": 1}  # tổng = 70
 
     large_frames = [r for r in results if r["label"] in ("W", "3D")]
     mid_frames = [r for r in results if r["label"] in ("D1", "H12")]
