@@ -396,26 +396,27 @@ def detect_trap(rsi_list: list[float], wma_list: list[float],
         result["trap_high_idx"] = last_trap_high_idx
         trap_price = closes[last_trap_high_idx] if last_trap_high_idx < len(closes) else None
 
-        # Check hỏng: từ trap xuống ≤40 mà không cắt lên WMA45
-        went_below_40 = False
+        # Check trả trap: RSI vượt WMA45 + giá vượt đỉnh trap
+        # Check hỏng: RSI rớt ≤30 mà chưa trả trap
         crossed_wma_up = False
         price_exceeded = False
+        went_below_30 = False
         for i, r, w in valid_pairs:
             if i <= last_trap_high_idx:
                 continue
-            if r <= 30:
-                went_below_40 = True
-            if went_below_40 and not crossed_wma_up and r > w:
+            if r > w:
                 crossed_wma_up = True
             if trap_price and i < len(closes) and closes[i] > trap_price:
                 price_exceeded = True
+            if r <= 30:
+                went_below_30 = True
 
-        if went_below_40 and not crossed_wma_up:
-            result["trap_high_broken"] = True
-            result["trap_status"] = "TRAP_HIGH_BROKEN"
-        elif crossed_wma_up and price_exceeded:
+        if crossed_wma_up and price_exceeded:
             result["trap_high_paid"] = True
             result["trap_status"] = "TRAP_HIGH_PAID"
+        elif went_below_30 and not (crossed_wma_up and price_exceeded):
+            result["trap_high_broken"] = True
+            result["trap_status"] = "TRAP_HIGH_BROKEN"
         else:
             result["trap_status"] = "TRAP_HIGH_ACTIVE"
 
@@ -425,27 +426,29 @@ def detect_trap(rsi_list: list[float], wma_list: list[float],
         result["trap_low_idx"] = last_trap_low_idx
         trap_price = closes[last_trap_low_idx] if last_trap_low_idx < len(closes) else None
 
-        went_above_60 = False
+        # Check trả trap: RSI xuống dưới WMA45 + giá phá đáy trap
+        # Check hỏng: RSI vọt ≥70 mà chưa trả trap
         crossed_wma_down = False
         price_broke_low = False
+        went_above_70 = False
         for i, r, w in valid_pairs:
             if i <= last_trap_low_idx:
                 continue
-            if r >= 70:
-                went_above_60 = True
-            if went_above_60 and not crossed_wma_down and r < w:
+            if r < w:
                 crossed_wma_down = True
             if trap_price and i < len(closes) and closes[i] < trap_price:
                 price_broke_low = True
+            if r >= 70:
+                went_above_70 = True
 
-        if went_above_60 and not crossed_wma_down:
-            result["trap_low_broken"] = True
-            if result["trap_status"] == "NONE":
-                result["trap_status"] = "TRAP_LOW_BROKEN"
-        elif crossed_wma_down and price_broke_low:
+        if crossed_wma_down and price_broke_low:
             result["trap_low_paid"] = True
             if result["trap_status"] == "NONE":
                 result["trap_status"] = "TRAP_LOW_PAID"
+        elif went_above_70 and not (crossed_wma_down and price_broke_low):
+            result["trap_low_broken"] = True
+            if result["trap_status"] == "NONE":
+                result["trap_status"] = "TRAP_LOW_BROKEN"
         elif result["trap_status"] == "NONE":
             result["trap_status"] = "TRAP_LOW_ACTIVE"
 
