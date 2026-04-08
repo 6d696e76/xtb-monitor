@@ -15,11 +15,11 @@ Giá: $9.22
 📊 Khung H4: RSI ở 63.9, đã vượt cả EMA9 lẫn WMA45 → Điểm 3. Đặc biệt: đang breakout lên từ cuộn! Baseline chụm (0.9%) → vùng entry tốt. RSI mạnh nhất trong 5 khung.
 
 📋 Đồng thuận
-  W → Điểm 2 (hướng lên WMA45) + Trap đỉnh     ✅
- 3D → Điểm 3 + Breakout lên                    ✅
- D1 → Điểm 3 + Trap đáy đang trả               ✅
-H12 → Điểm 3 + Trap đáy đang trả               ✅
- H4 → Điểm 3 + Breakout lên                    ✅
+W → Điểm 2 (hướng lên WMA45) + Trap đỉnh     ✅
+3D → Điểm 3 + Breakout lên                   ✅
+D1 → Điểm 3 + Trap đáy đang trả              ✅
+H12 → Điểm 3 + Trap đáy đang trả             ✅
+H4 → Điểm 3 + Breakout lên                   ✅
 Đồng thuận: 5/5 khung ✅✅✅
 
 🎯 Plan giao dịch
