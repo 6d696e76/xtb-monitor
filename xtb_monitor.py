@@ -179,167 +179,256 @@ def format_telegram_rich(symbol: str, results: list[dict],
                          consensus: dict, price: float,
                          side: str = "buy") -> str:
     """
-    Sinh message Telegram dạng đẹp, tiếng Việt mô tả chi tiết.
-    Tương thích format trong telegram_template.txt.
+    Sinh message Telegram theo phong cách bài phân tích mẫu XTB-Springtea.
+    Văn xuôi tự nhiên, đọc từ khung lớn → nhỏ, kèm đồng thuận và plan.
     """
     pair = symbol.replace("USDT", "/USDT")
     icon = COIN_ICONS.get(symbol, "📊")
+    side_vn = "BUY" if side == "buy" else "SELL"
     lines = [f"{icon} {pair}", f"Giá: ${price:,.2f}", ""]
 
     sig_key = "buy_signal" if side == "buy" else "sell_signal"
     mochi_key = "mochi_buy" if side == "buy" else "mochi_sell"
 
+    # ── Đảo thứ tự: khung lớn trước (W → H4) ──
+    ordered = list(reversed(results))
+
+    TF_NAMES = {"W": "W (tuần)", "3D": "3D", "D1": "D1",
+                "H12": "H12", "H4": "H4"}
+
+    # ── Tìm khung có RSI mạnh nhất ──
+    best_rsi_label = None
+    best_rsi_val = -1
     for r in results:
+        if r["rsi"] is not None and r["rsi"] > best_rsi_val:
+            best_rsi_val = r["rsi"]
+            best_rsi_label = r["label"]
+
+    # ── Phân tích từng khung — văn xuôi ──
+    for r in ordered:
         rsi = r["rsi"]
         delta = r.get("rsi_delta")
         label = r["label"]
-        lines.append(f"--- Khung {label} ---")
-
-        # ── 1. RSI line ──
-        zone_vi = _rsi_zone_vi(rsi)
-        trend_vi = _rsi_trend_vi(delta)
-        # Icon: RSI > 50 thuận BUY, RSI 35-50 trung tính, < 35 nghịch (nếu chưa đổ xăng)
-        if side == "buy":
-            rsi_fav = rsi > 50 if rsi is not None else None
-            if rsi is not None and rsi <= 35:
-                rsi_fav = None  # vùng đổ xăng = trung tính (cơ hội bắt đáy)
-        else:
-            rsi_fav = rsi < 50 if rsi is not None else None
-            if rsi is not None and rsi >= 65:
-                rsi_fav = None
-        rsi_desc = f"RSI {fmt(rsi, 1)}"
-        if zone_vi and trend_vi:
-            rsi_desc += f" — {zone_vi}, {trend_vi}."
-        elif zone_vi:
-            rsi_desc += f" — {zone_vi}."
-        lines.append(f"{_buy_icon(rsi_fav)} {rsi_desc}")
-
-        # ── 2. RSI position vs EMA/WMA ──
+        tf_name = TF_NAMES.get(label, label)
+        sig_val = r[sig_key]
         rsi_ae = r.get("rsi_above_ema")
         rsi_aw = r.get("rsi_above_wma")
-        sig_val = r[sig_key]
-        if sig_val != "POINT_3":
-            if rsi_ae is True and rsi_aw is False:
-                pos_icon = _buy_icon(True) if side == "buy" else _buy_icon(False)
-                wma_v = fmt(r["wma45"], 1)
-                lines.append(f"{pos_icon} RSI đã vượt EMA9 nhưng chưa vượt WMA45, đang trong quá trình chuyển đổi.")
-            elif rsi_ae is False and rsi_aw is False:
-                lines.append(f"{_buy_icon(False) if side == 'buy' else _buy_icon(True)} RSI nằm dưới cả EMA9 và WMA45, chưa có tín hiệu tăng.")
-
-        # ── 3. Signal line ──
-        signal_descs = {
-            "POINT_3": ("Điểm 3", "xu hướng đã xác nhận, có thể vào theo đà."),
-            "POINT_2": ("Điểm 2", "RSI đang cân bằng giữa EMA và WMA, chờ xác nhận."),
-            "POINT_1_ZONE": ("Vùng Điểm 1", "cơ hội bắt đáy nhưng rủi ro cao."),
-            "APPROACHING": ("Đang tiếp cận", "RSI vượt EMA9, hướng về WMA45."),
-        }
-        if sig_val in signal_descs:
-            name, desc = signal_descs[sig_val]
-            # Icon: P3 = thuận, P2 = trung tính, P1 = nghịch, APPROACHING = trung tính
-            if sig_val == "POINT_3":
-                sig_icon = _buy_icon(True)
-            elif sig_val in ("POINT_2", "APPROACHING"):
-                sig_icon = _buy_icon(None)
-            else:
-                sig_icon = _buy_icon(None)
-            lines.append(f"{sig_icon} Tín hiệu: {name} — {desc}")
-
-        # ── 4. Mochi line ──
-        if r.get(mochi_key):
-            lines.append(f"✅ Mochi: RSI vừa cắt lên EMA9, gap đang thu hẹp — tín hiệu mua mạnh.")
-
-        # ── 5. Form line ──
+        ts = r.get("trap_status", "NONE")
         ft = r.get("form_type", "NONE")
         spread = r.get("spread_now")
-        if ft != "NONE" and spread is not None:
-            spread_str = f"spread {spread:.1f}"
-            if ft == "CURL_BUY":
-                form_icon = _buy_icon(True) if side == "buy" else _buy_icon(False)
-                lines.append(f"{form_icon} Form: 3 đường đang cuộn lại ({spread_str}), chuẩn bị tạo form mua.")
-            elif ft == "CURL_SELL":
-                form_icon = _buy_icon(False) if side == "buy" else _buy_icon(True)
-                lines.append(f"{form_icon} Form: 3 đường đang cuộn lại ({spread_str}), chưa rõ hướng.")
-            elif ft == "BREAKOUT_UP":
-                form_icon = _buy_icon(True) if side == "buy" else _buy_icon(False)
-                lines.append(f"{form_icon} Form: BREAKOUT lên từ vùng cuộn ({spread_str}), lực tăng mạnh!")
-            elif ft == "BREAKOUT_DOWN":
-                form_icon = _buy_icon(False) if side == "buy" else _buy_icon(True)
-                lines.append(f"{form_icon} Form: BREAKOUT xuống từ vùng cuộn ({spread_str}), cảnh báo!")
+        gap_dir = r.get("gap_direction", "")
+        bl_conv = r.get("bl_converging", False)
+        bl_dist = r.get("bl_distance_pct")
 
-        # ── 6. Trap line ──
-        ts = r.get("trap_status", "NONE")
+        # ── Build 1 đoạn văn xuôi cho khung này ──
+        para = f"📊 Khung {tf_name}: RSI ở {fmt(rsi, 1)}"
+
+        # Vị trí RSI vs EMA/WMA
+        if rsi_ae is True and rsi_aw is True:
+            para += f", đã vượt cả EMA9 lẫn WMA45"
+        elif rsi_ae is True and rsi_aw is False:
+            para += f", đã vượt EMA9 nhưng chưa vượt WMA45"
+        elif rsi_ae is False and rsi_aw is False:
+            para += f", nằm dưới cả EMA9 và WMA45"
+
+        # Signal point
+        if sig_val == "POINT_3":
+            para += " → Điểm 3."
+        elif sig_val == "POINT_2":
+            para += ". Đây là Điểm 2 — RSI đang nằm giữa 2 đường"
+            if gap_dir == "bull_converge":
+                para += ", gap EMA-WMA đang thu hẹp (🐂 bull converge)"
+            elif gap_dir == "bear_converge":
+                para += ", gap EMA-WMA đang thu hẹp (🐻 bear converge)"
+            para += "."
+        elif sig_val == "POINT_1_ZONE":
+            para += ". Đang ở vùng Điểm 1 — cơ hội bắt đáy, rủi ro cao."
+        elif sig_val == "APPROACHING":
+            para += ". RSI vượt EMA9, đang hướng về WMA45."
+        elif rsi_ae is False and rsi_aw is False:
+            para += " — chưa có tín hiệu tăng."
+        else:
+            para += "."
+
+        # Form
+        if ft == "BREAKOUT_UP":
+            para += f" Đặc biệt: đang breakout lên từ cuộn!"
+        elif ft == "BREAKOUT_DOWN":
+            para += f" Đang breakout xuống từ cuộn."
+        elif ft == "CURL_BUY":
+            para += f" 3 đường đang cuộn vào form mua (spread {spread:.1f})."
+        elif ft == "CURL_SELL":
+            para += f" 3 đường đang cuộn vào form bán (spread {spread:.1f})."
+
+        # Trap
         if ts == "TRAP_HIGH_ACTIVE":
-            lines.append(f"➖ Trap: RSI đã chạm 80 trước đó, đang chờ trả trap đỉnh.")
+            para += " Có trap đỉnh đang hoạt động → giá vẫn còn lực để leo lên trả trap."
         elif ts == "TRAP_LOW_ACTIVE":
-            lines.append(f"➖ Trap: RSI đã chạm 20 trước đó, đang chờ trả trap đáy.")
+            para += f" Có trap đáy đang hoạt động (RSI trước đó chạm ≤20) → kỳ vọng giá sẽ vòng lên trả trap."
         elif ts == "TRAP_HIGH_BROKEN":
-            lines.append(f"❌ Trap: Trap đỉnh đã HỎNG — xu hướng giảm mạnh!")
+            para += " Trap đỉnh đã HỎNG — xu hướng giảm mạnh!"
         elif ts == "TRAP_LOW_BROKEN":
-            lines.append(f"✅ Trap: Trap đáy đã HỎNG — xu hướng tăng mạnh!")
+            para += " Trap đáy đã HỎNG — xu hướng tăng mạnh!"
         elif ts == "TRAP_HIGH_PAID":
-            lines.append(f"✅ Trap: Trap đỉnh đã TRẢ — đỉnh mới đã lập.")
+            para += " Trap đỉnh đã trả xong — đỉnh mới đã lập."
         elif ts == "TRAP_LOW_PAID":
-            lines.append(f"✅ Trap: Trap đáy đã TRẢ — đáy mới đã lập.")
+            para += " Trap đáy đã trả xong — đáy mới đã lập."
 
-        # ── 7. Exit line ──
+        # Baseline
+        if bl_conv and bl_dist is not None:
+            para += f" Baseline chụm ({bl_dist:.1f}%) → vùng entry tốt."
+
+        # Momentum (nếu chưa nhắc ở Điểm 2)
+        if gap_dir == "bull_converge" and sig_val != "POINT_2":
+            para += " Gap EMA-WMA thu hẹp (🐂 bull converge)."
+        elif gap_dir == "bear_converge" and sig_val != "POINT_2":
+            para += " Gap EMA-WMA thu hẹp (🐻 bear converge)."
+
+        # Giá cắt Baseline
+        if r.get("bl_fast_cross_up"):
+            para += " Giá vừa cắt lên Baseline Fast → tín hiệu tích cực."
+        elif r.get("bl_fast_cross_down"):
+            para += " Giá cắt xuống Baseline Fast → cảnh báo."
+
+        # Mochi
+        if r.get(mochi_key):
+            para += " 🔥 Mochi: RSI cắt lên EMA9 + gap thu hẹp → tín hiệu mua mạnh."
+
+        # RSI mạnh nhất
+        if label == best_rsi_label and len(results) > 1:
+            para += f" RSI mạnh nhất trong 5 khung."
+
+        lines.append(para)
+
+        # ── Nhận định đặc biệt ──
+        if ts == "TRAP_LOW_ACTIVE" and sig_val in ("POINT_3", "POINT_2"):
+            lines.append(f'💡 Nhận định: {label} đang trong quá trình trả trap đáy. "RSI sẽ điều chỉnh, cuộn dần tạo form buy, vượt lên 45, giá bằng hoặc cao hơn đỉnh cũ → hoàn thành trả trap."')
+        elif ts == "TRAP_HIGH_ACTIVE" and sig_val in ("POINT_2", "APPROACHING"):
+            lines.append(f'💡 Nhận định: {label} có trap đỉnh nhưng RSI đang hướng lên → giá kỳ vọng leo lên trả trap đỉnh.')
+        elif ft == "CURL_BUY" and ts == "TRAP_LOW_ACTIVE":
+            lines.append(f'💡 Nhận định: {label} đang ở giai đoạn đẹp — 3 đường cuộn lại, cuộn xong breakout lên sẽ kéo các khung bé theo.')
+
+        # ── Exit warning ──
         exit_key = r.get("exit_buy") if side == "buy" else r.get("exit_sell")
         if exit_key and exit_key.get("exit_warning"):
             et = exit_key["exit_type"]
-            if et == "FULL_EXIT":
-                lines.append(f"❌ Exit: {exit_key['exit_reason']}")
-            else:
-                lines.append(f"➖ Exit: {exit_key['exit_reason']}")
-
-        # ── 8. DCA line ──
-        dca_key = r.get("dca_buy") if side == "buy" else r.get("dca_sell")
-        if dca_key and dca_key.get("dca_safe"):
-            dt = dca_key["dca_type"]
-            if dt == "DCA_WMA_CROSS":
-                lines.append(f"✅ DCA: RSI cắt lên WMA45, DCA an toàn.")
-            elif dt == "DCA_EMA_NARROW":
-                lines.append(f"➖ DCA: EMA đang hẹp lại gần WMA, có thể DCA cẩn thận.")
-            elif dt == "DCA_FORM_BUY":
-                lines.append(f"✅ DCA: RSI trên cả EMA+WMA, có thể DCA.")
-
-        # ── 9. Baseline line ──
-        bl_conv = r.get("bl_converging", False)
-        bl_dist = r.get("bl_distance_pct")
-        if bl_conv and bl_dist is not None:
-            lines.append(f"✅ Baseline: 2 đường BL chụm lại ({bl_dist:.1f}%), vùng entry tốt.")
-
-        # ── 10. Momentum line ──
-        gap_dir = r.get("gap_direction", "")
-        if gap_dir == "bull_converge":
-            mom_icon = _buy_icon(True) if side == "buy" else _buy_icon(False)
-            lines.append(f"{mom_icon} Momentum: Gap EMA-WMA đang thu hẹp, lực mua đang tích lũy.")
-        elif gap_dir == "bear_converge":
-            mom_icon = _buy_icon(False) if side == "buy" else _buy_icon(True)
-            lines.append(f"{mom_icon} Momentum: Gap EMA-WMA đang thu hẹp, lực bán đang tích lũy.")
+            icon_e = "🔴" if et == "FULL_EXIT" else "🟡"
+            lines.append(f"{icon_e} Cảnh báo: {exit_key['exit_reason']}")
 
         lines.append("")  # blank line between timeframes
 
-    # ── KẾT LUẬN ──
+    # ── 📋 ĐỒNG THUẬN ──
     total = consensus["total_signals"]
     level = consensus["consensus_level"]
-    level_short = level.split("✅")[0].strip()  # remove ✅ icons from level
-    mochi_cnt = consensus.get("mochi_signals", 0)
-    rising = consensus.get("rsi_rising_count", 0)
-    falling = consensus.get("rsi_falling_count", 0)
-
-    lines.append("== KẾT LUẬN ==")
-    lines.append(f"{level_short} ({total}/5 khung có tín hiệu).")
-
-    # Khung lớn support
+    level_icons = ""
+    if total >= 4: level_icons = " ✅✅✅"
+    elif total >= 3: level_icons = " ✅✅"
+    elif total >= 2: level_icons = " ✅"
     large_sup = consensus.get("large_frame_signal", False)
-    if large_sup:
-        lines.append("Khung lớn (W, 3D) ủng hộ.")
-    else:
-        lines.append("Khung lớn (W, 3D) chưa ủng hộ.")
 
-    lines.append(f"Mochi: {mochi_cnt}/5 | RSI tăng: {rising}/5 | RSI giảm: {falling}/5")
+    lines.append("📋 Đồng thuận")
+    for r in ordered:
+        sig = r.get(sig_key, "NONE")
+        ts = r.get("trap_status", "NONE")
+        ft = r.get("form_type", "NONE")
+        gap_dir = r.get("gap_direction", "")
+        parts = []
+        if sig == "POINT_3": parts.append("Điểm 3")
+        elif sig == "POINT_2":
+            parts.append("Điểm 2")
+            if gap_dir == "bull_converge": parts[-1] += " (hướng lên WMA45)"
+        elif sig == "POINT_1_ZONE": parts.append("Vùng Điểm 1")
+        elif sig == "APPROACHING": parts.append("Tiếp cận WMA45")
+        if ft == "BREAKOUT_UP": parts.append("Breakout lên")
+        elif ft == "BREAKOUT_DOWN": parts.append("Breakout xuống")
+        elif ft.startswith("CURL_"): parts.append("Cuộn")
+        if ts == "TRAP_LOW_ACTIVE": parts.append("Trap đáy đang trả")
+        elif ts == "TRAP_HIGH_ACTIVE": parts.append("Trap đỉnh")
+        elif ts == "TRAP_HIGH_PAID": parts.append("Trap đỉnh ✅ trả")
+        elif ts == "TRAP_LOW_PAID": parts.append("Trap đáy ✅ trả")
+        if gap_dir == "bull_converge" and sig != "POINT_2": parts.append("Gap thu hẹp")
 
-    if consensus.get("golden_entry"):
-        lines.append("🌟 GOLDEN ENTRY: BL chụm + VWAP gần!")
+        sig_icon = "✅" if sig != "NONE" else "❌"
+        desc = " + ".join(parts) if parts else "Chưa có tín hiệu"
+        lines.append(f"{r['label']:>3} → {desc:40s} {sig_icon}")
+
+    lines.append(f"Đồng thuận: {total}/5 khung{level_icons}")
+
+    # ── 🎯 PLAN GIAO DỊCH ──
+    lines.append("")
+    lines.append(f"🎯 Plan giao dịch")
+
+    # Tìm traps, forms, breakouts
+    active_traps = []
+    breakouts = []
+    curling = []
+    for r in results:
+        ts = r.get("trap_status", "NONE")
+        if ts == "TRAP_LOW_ACTIVE": active_traps.append((r["label"], "đáy"))
+        elif ts == "TRAP_HIGH_ACTIVE": active_traps.append((r["label"], "đỉnh"))
+        ft = r.get("form_type", "NONE")
+        if ft == "BREAKOUT_UP": breakouts.append(r["label"])
+        elif ft.startswith("CURL_"): curling.append(r["label"])
+
+    # Tổng quan
+    overview_parts = []
+    if total >= 4:
+        overview_parts.append(f"Tất cả các khung từ H4 → W đều đồng thuận hướng {'lên' if side == 'buy' else 'xuống'}")
+    elif total >= 2:
+        overview_parts.append(f"{total}/5 khung đồng thuận {side_vn}")
+
+    trap_low = [t for t in active_traps if t[1] == "đáy"]
+    trap_high = [t for t in active_traps if t[1] == "đỉnh"]
+    if trap_low:
+        labels = " và ".join(t[0] for t in trap_low)
+        overview_parts.append(f"{labels} đang trả trap đáy → xác suất tiếp tục tăng cao (~70%)")
+    if breakouts:
+        labels = " và ".join(breakouts)
+        overview_parts.append(f"{labels} breakout lên → đà tăng đang được xác nhận")
+
+    if overview_parts:
+        lines.append(". ".join(overview_parts) + ".")
+
+    # Entry
+    if total >= 2:
+        lines.append(f"")
+        lines.append(f"Nếu muốn vào lệnh {side_vn}:")
+        cond = "ĐẠT" if total >= 3 else "CƠ BẢN"
+        lines.append(f"✅ Đồng thuận: {cond} ({total}/5 khung)")
+        lines.append(f"Vào tại vùng giá ~${price:,.2f}")
+
+        # SL — lấy BL Slow của H4 hoặc khung nhỏ nhất
+        h4 = next((r for r in results if r["label"] == "H4"), None)
+        if h4:
+            sl_candidates = [v for v in [h4.get("bl_slow"), h4.get("bl_fast")] if v]
+            if sl_candidates:
+                sl_ref = min(sl_candidates) if side == "buy" else max(sl_candidates)
+                lines.append(f"SL tham khảo: {'dưới' if side == 'buy' else 'trên'} BL Slow H4 ~${sl_ref:,.2f}")
+
+        # Nến chưa đóng
+        open_frames = [r["label"] for r in results if r.get("is_open")]
+        if open_frames:
+            lines.append(f"Chờ {open_frames[0]} đóng nến xác nhận (nến đang mở)")
+
+    # Rủi ro
+    risks = []
+    if trap_high:
+        labels = ", ".join(t[0] for t in trap_high)
+        risks.append(f"{labels} có trap đỉnh → khi trả xong sẽ có đợt điều chỉnh")
+
+    # VWAP position
+    for r in results:
+        if r["label"] in ("H12", "D1") and r.get("price_above_vwap") is False:
+            vwap_v = r.get("vwap")
+            if vwap_v:
+                risks.append(f"Giá dưới VWAP {r['label']} (${vwap_v:,.2f}) → cần vượt qua")
+            break
+
+    if risks:
+        lines.append("")
+        lines.append("Rủi ro cần lưu ý:")
+        for risk in risks:
+            lines.append(f"⚠️ {risk}")
 
     lines.append("")
     lines.append(consensus["recommendation"])
