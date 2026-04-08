@@ -476,22 +476,37 @@ def detect_trap(rsi_list: list[float], wma_list: list[float],
 def detect_form_pattern(rsi_list: list[float], ema_list: list[float],
                         wma_list: list[float], lookback: int = 10) -> dict:
     """
-    [v4] Phát hiện Form Cuộn (3 đường hội tụ) và Breakout.
-    Cuộn = RSI, EMA9, WMA45 gần nhau (spread nhỏ).
-    Breakout = spread đang mở rộng sau khi cuộn.
+    [v4.1] Phát hiện Form theo sơ đồ Springtea (I→II→III→Breakout).
+
+    Form Buy:
+      I  : RSI rơi từ trên cả 2 đường xuống
+      II : RSI chạm extreme đáy (≤30)
+      III: 3 đường hội tụ (cuộn) — RSI hồi lên gần EMA9/WMA45
+      Breakout: RSI tách lên, R > E > W
+
+    Form Sell (đối xứng):
+      I  : RSI leo từ dưới cả 2 đường lên
+      II : RSI chạm extreme đỉnh (≥70)
+      III: 3 đường hội tụ (cuộn)
+      Breakout: RSI tách xuống, R < E < W
     """
     result = {
-        "is_curling": False,     # đang cuộn
-        "is_breakout": False,    # đang breakout từ cuộn
-        "form_type": "NONE",     # NONE/CURL_BUY/CURL_SELL/BREAKOUT_UP/BREAKOUT_DOWN
+        "is_curling": False,        # đang cuộn (Stage III)
+        "is_breakout": False,       # đang breakout từ cuộn
+        "form_type": "NONE",        # NONE/CURL_BUY/CURL_SELL/BREAKOUT_UP/BREAKOUT_DOWN
         "spread_now": None,
         "spread_min": None,
-        "curl_strength": None,   # 0-100, càng cao càng chặt
+        "curl_strength": None,      # 0-100, càng cao càng chặt
+        # [v4.1] Form stage tracking
+        "form_stage": "NONE",       # NONE/STAGE_I/STAGE_II/STAGE_III/BREAKOUT
+        "form_after_trap_low": False,   # cuộn sau khi RSI chạm ≤30
+        "form_after_trap_high": False,  # cuộn sau khi RSI chạm ≥70
+        "extreme_rsi_idx": None,    # index nến RSI extreme gần nhất
     }
     if len(rsi_list) < lookback or len(ema_list) < lookback or len(wma_list) < lookback:
         return result
 
-    # Calculate spread (max - min of 3 lines) for recent candles
+    # ── 1. Tính spread 3 đường cho lookback gần nhất ──
     spreads = []
     for i in range(len(rsi_list) - lookback, len(rsi_list)):
         r = rsi_list[i]
@@ -504,23 +519,22 @@ def detect_form_pattern(rsi_list: list[float], ema_list: list[float],
 
     spread_now = spreads[-1][1]
     spread_min = min(s for _, s in spreads)
-    spread_avg = sum(s for _, s in spreads) / len(spreads)
     result["spread_now"] = spread_now
     result["spread_min"] = spread_min
 
-    # Cuộn: spread hiện tại < 5 điểm RSI
+    # ── 2. Phát hiện Cuộn (Stage III) ──
     CURL_THRESHOLD = 5.0
     result["is_curling"] = spread_now < CURL_THRESHOLD
     result["curl_strength"] = max(0, min(100, (1 - spread_now / 15) * 100))
 
-    # Breakout: spread đang mở rộng sau khi đã cuộn
+    # ── 3. Phát hiện Breakout ──
     if len(spreads) >= 4:
         recent_min_spread = min(s for _, s in spreads[:-2])
         was_curling = recent_min_spread < CURL_THRESHOLD
         expanding = spread_now > spreads[-2][1] and spread_now > CURL_THRESHOLD
         result["is_breakout"] = was_curling and expanding
 
-    # Xác định hướng
+    # ── 4. Xác định hướng ──
     r = rsi_list[-1]
     e = ema_list[-1]
     w = wma_list[-1]
@@ -535,6 +549,56 @@ def detect_form_pattern(rsi_list: list[float], ema_list: list[float],
                 result["form_type"] = "BREAKOUT_UP"
             elif r < e < w:
                 result["form_type"] = "BREAKOUT_DOWN"
+
+    # ── 5. [v4.1] Scan ngược tìm RSI extreme → xác định Stage ──
+    # Scan 50 nến gần nhất tìm điểm RSI chạm ≤30 hoặc ≥70
+    scan_range = min(50, len(rsi_list))
+    last_extreme_low_idx = None
+    last_extreme_high_idx = None
+    for i in range(len(rsi_list) - 1, max(len(rsi_list) - scan_range - 1, -1), -1):
+        rv = rsi_list[i]
+        if rv is None:
+            continue
+        if rv <= 30 and last_extreme_low_idx is None:
+            last_extreme_low_idx = i
+        if rv >= 70 and last_extreme_high_idx is None:
+            last_extreme_high_idx = i
+        if last_extreme_low_idx is not None and last_extreme_high_idx is not None:
+            break
+
+    # ── 6. Form Buy stage (sau extreme đáy) ──
+    if last_extreme_low_idx is not None:
+        result["form_after_trap_low"] = True
+        result["extreme_rsi_idx"] = last_extreme_low_idx
+        # Stage II đã xảy ra (RSI chạm đáy)
+        # Giờ check: RSI đã hồi lên → đang cuộn hoặc breakout?
+        if result["is_breakout"] and result["form_type"] == "BREAKOUT_UP":
+            result["form_stage"] = "BREAKOUT"
+        elif result["is_curling"] and result["form_type"] == "CURL_BUY":
+            result["form_stage"] = "STAGE_III"
+        elif r is not None and w is not None and e is not None:
+            if r < e and r < w:
+                # RSI vẫn dưới cả 2 đường, đang hồi → giữa Stage II và III
+                result["form_stage"] = "STAGE_II"
+            elif r > e and r < w:
+                # RSI vượt EMA nhưng chưa tới WMA → đang tiến tới cuộn
+                result["form_stage"] = "STAGE_II"
+
+    # ── 7. Form Sell stage (sau extreme đỉnh) — ưu tiên nếu gần hơn ──
+    if last_extreme_high_idx is not None:
+        # Chỉ ghi đè nếu extreme high gần hơn extreme low
+        if last_extreme_low_idx is None or last_extreme_high_idx > last_extreme_low_idx:
+            result["form_after_trap_high"] = True
+            result["extreme_rsi_idx"] = last_extreme_high_idx
+            if result["is_breakout"] and result["form_type"] == "BREAKOUT_DOWN":
+                result["form_stage"] = "BREAKOUT"
+            elif result["is_curling"] and result["form_type"] == "CURL_SELL":
+                result["form_stage"] = "STAGE_III"
+            elif r is not None and w is not None and e is not None:
+                if r > e and r > w:
+                    result["form_stage"] = "STAGE_II"
+                elif r < e and r > w:
+                    result["form_stage"] = "STAGE_II"
 
     return result
 
@@ -899,6 +963,10 @@ def analyze_timeframe(symbol: str, interval: str, label: str) -> dict:
         "is_breakout": form["is_breakout"],
         "spread_now": form["spread_now"],
         "curl_strength": form["curl_strength"],
+        # [v4.1] Form stage
+        "form_stage": form["form_stage"],
+        "form_after_trap_low": form["form_after_trap_low"],
+        "form_after_trap_high": form["form_after_trap_high"],
         # [v4] Exit
         "exit_buy": exit_sig,
         "exit_sell": exit_sig_sell,
