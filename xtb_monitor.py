@@ -354,6 +354,64 @@ def format_telegram_rich(symbol: str, results: list[dict],
 
     lines.append(f"Đồng thuận: {total}/5 khung{level_icons}")
 
+    # ── 🏠 CỐ ÔNG CHA CON CHÁU (v4.2) ──
+    hierarchy_names = {"W": "Cố ", "3D": "Ông", "D1": "Cha", "H12": "Con", "H4": "Cháu"}
+    wt = {"W": 42, "3D": 18, "D1": 6, "H12": 3, "H4": 1}
+    frame_biases = consensus.get("frame_biases", {})
+    weighted_pct = consensus.get("weighted_pct", 0)
+
+    lines.append("")
+    lines.append("🏠 Cố Ông Cha Con Cháu")
+    for lb in ["W", "3D", "D1", "H12", "H4"]:
+        b = frame_biases.get(lb, 0)
+        w = wt[lb]
+        pct = w / 70 * 100
+        r_data = next((x for x in results if x["label"] == lb), None)
+        if not r_data:
+            continue
+
+        # Bias indicator
+        if b > 0.3:
+            bias_icon = "🟢"
+        elif b < -0.3:
+            bias_icon = "🔴"
+        else:
+            bias_icon = "⚪"
+
+        # Signal text
+        sb = r_data.get(sig_key, "NONE")
+        so = r_data.get("sell_signal" if side == "buy" else "buy_signal", "NONE")
+        if sb == "POINT_3":
+            st = "Đ3✅"
+        elif sb == "POINT_2":
+            st = "Đ2"
+        elif sb == "POINT_1_ZONE":
+            st = "Đ1"
+        elif sb == "APPROACHING":
+            st = "→W"
+        elif so == "POINT_3":
+            st = "Đ3↓"
+        elif so == "POINT_1_ZONE":
+            st = "Đ1↓"
+        else:
+            st = "—"
+
+        lines.append(f"{bias_icon} {hierarchy_names[lb]}({lb}) {pct:.0f}% │ {st}")
+
+    lines.append(f"Score: {weighted_pct:+.0f}%")
+
+    # Xung đột
+    conflicts = consensus.get("conflicts", [])
+    if conflicts:
+        for cf in conflicts:
+            lines.append(cf)
+
+    # Cascade
+    cascade_notes = consensus.get("cascade_notes", [])
+    if cascade_notes:
+        for cn in cascade_notes:
+            lines.append(cn)
+
     # ── 🎯 PLAN GIAO DỊCH ──
     lines.append("")
     lines.append(f"🎯 Plan giao dịch")
