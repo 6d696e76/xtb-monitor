@@ -805,7 +805,10 @@ def analyze_timeframe(symbol: str, interval: str, label: str) -> dict:
     else:
         rsi_zone = "N/A"
 
-    # Đánh giá tín hiệu BUY
+    # Đánh giá tín hiệu BUY (theo sơ đồ Form Buy - Springtea)
+    # P3: RSI > EMA > WMA → xu hướng xác nhận
+    # P2: RSI > EMA, RSI < WMA → cân bằng, chờ xác nhận
+    # P1: RSI < EMA < WMA, RSI đang hồi phục (delta > 0) → bắt đáy
     buy_signal = "NONE"
     if rsi_above_ema and rsi_above_wma:
         buy_signal = "POINT_3"
@@ -814,10 +817,15 @@ def analyze_timeframe(symbol: str, interval: str, label: str) -> dict:
             buy_signal = "POINT_2"
         else:
             buy_signal = "APPROACHING"
-    elif rsi_above_ema is False and rsi_above_wma is False and rsi_now and rsi_now <= 35:
-        buy_signal = "POINT_1_ZONE"
+    elif rsi_above_ema is False and rsi_above_wma is False and rsi_now and rsi_now <= 45:
+        # Điểm 1: RSI dưới cả 2 đường + đang hồi phục (delta > 0)
+        if rsi_delta is not None and rsi_delta > 0:
+            buy_signal = "POINT_1_ZONE"
 
-    # Đánh giá tín hiệu SELL
+    # Đánh giá tín hiệu SELL (theo sơ đồ Form Sell - Springtea)
+    # P3: RSI < EMA < WMA → xu hướng giảm xác nhận
+    # P2: RSI < EMA, RSI > WMA → cắt xuống EMA, chờ
+    # P1: RSI > EMA > WMA, RSI đang rơi (delta < 0) → bắt đỉnh
     sell_signal = "NONE"
     rsi_below_ema = (rsi_now < ema_now) if (rsi_now and ema_now) else None
     rsi_below_wma = (rsi_now < wma_now) if (rsi_now and wma_now) else None
@@ -825,8 +833,10 @@ def analyze_timeframe(symbol: str, interval: str, label: str) -> dict:
         sell_signal = "POINT_3"
     elif rsi_below_ema is True and rsi_below_wma is False:
         sell_signal = "POINT_2"
-    elif rsi_below_ema is False and rsi_below_wma is False and rsi_now and rsi_now >= 65:
-        sell_signal = "POINT_1_ZONE"
+    elif rsi_below_ema is False and rsi_below_wma is False and rsi_now and rsi_now >= 55:
+        # Điểm 1: RSI trên cả 2 đường + đang rơi (delta < 0)
+        if rsi_delta is not None and rsi_delta < 0:
+            sell_signal = "POINT_1_ZONE"
 
     return {
         "label": label,
