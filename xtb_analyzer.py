@@ -984,9 +984,9 @@ def analyze_timeframe(symbol: str, interval: str, label: str) -> dict:
 def evaluate_consensus(results: list[dict], side: str = "buy") -> dict:
     """
     [v4.2] Đánh giá đồng thuận đa khung thời gian theo nguyên tắc
-    "Ông Bố Con Cháu" của Springtea — khung lớn nói, khung bé phải nghe.
+    "Cố Ông Cha Con Cháu" của Springtea — khung lớn nói, khung bé phải nghe.
 
-    Trọng số:  W=5 (Ông) | 3D=4 (Bố) | D1=3 (Mẹ) | H12=2 (Anh) | H4=1 (Cháu)
+    Trọng số:  W=5 (Cố) | 3D=4 (Ông) | D1=3 (Cha) | H12=2 (Con) | H4=1 (Cháu)
 
     Bias per frame: BUY / SELL / NEUTRAL dựa trên:
       - Signal (P1/P2/P3) → mạnh nhất
@@ -1080,10 +1080,10 @@ def evaluate_consensus(results: list[dict], side: str = "buy") -> dict:
     # Normalize: -100 → +100
     weighted_pct = (weighted_score / max_score * 100) if max_score > 0 else 0
 
-    # ── Phát hiện xung đột ông-cháu ──
+    # ── Phát hiện xung đột cố-cháu ──
     conflicts = []
-    hierarchy_labels = {"W": "Ông (W)", "3D": "Bố (3D)", "D1": "Mẹ (D1)",
-                        "H12": "Anh (H12)", "H4": "Cháu (H4)"}
+    hierarchy_labels = {"W": "Cố (W)", "3D": "Ông (3D)", "D1": "Cha (D1)",
+                        "H12": "Con (H12)", "H4": "Cháu (H4)"}
 
     for big_label in ["W", "3D"]:
         big_bias = frame_biases.get(big_label)
@@ -1213,7 +1213,7 @@ def evaluate_consensus(results: list[dict], side: str = "buy") -> dict:
     rsi_rising_count = sum(1 for r in results if (r.get("rsi_delta") or 0) > 0)
     rsi_falling_count = sum(1 for r in results if (r.get("rsi_delta") or 0) < 0)
 
-    # ── Recommendation — ông nói phải nghe + cascade ──
+    # ── Recommendation — cố nói phải nghe + cascade ──
     w_bias = frame_biases.get("W", 0)
     d3_bias = frame_biases.get("3D", 0)
 
@@ -1228,9 +1228,9 @@ def evaluate_consensus(results: list[dict], side: str = "buy") -> dict:
     if len(violations) > 0:
         recommendation = "⛔ VI PHẠM QUY TẮC — KHÔNG VÀO LỆNH"
     elif w_bias < -0.3 and not cascade_override:
-        recommendation = "🚫 ÔNG (W) ĐANG NGƯỢC CHIỀU — KHÔNG VÀO LỆNH"
+        recommendation = "🚫 CỐ (W) ĐANG NGƯỢC CHIỀU — KHÔNG VÀO LỆNH"
     elif w_bias < -0.3 and cascade_override:
-        recommendation = (f"⚠️ Ông (W) ngược chiều NHƯNG cascade {cascade_direction} "
+        recommendation = (f"⚠️ Cố (W) ngược chiều NHƯNG cascade {cascade_direction} "
                           f"mạnh ({cascade_strength} khung) → CÂN NHẮC KỸ")
     elif total_with_signal >= 2 and has_signal(large_frames):
         if weighted_pct >= 40:
@@ -1242,7 +1242,7 @@ def evaluate_consensus(results: list[dict], side: str = "buy") -> dict:
                           f"cascade {cascade_strength} khung đang kéo lên")
     elif total_with_signal >= 2:
         if d3_bias < -0.3:
-            recommendation = "⚠️ CÂN NHẮC — Bố (3D) đang ngược chiều"
+            recommendation = "⚠️ CÂN NHẮC — Ông (3D) đang ngược chiều"
         else:
             recommendation = "⚠️ CÂN NHẮC — khung lớn chưa ủng hộ"
 
