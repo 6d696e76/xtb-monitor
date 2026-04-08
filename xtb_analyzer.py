@@ -982,8 +982,22 @@ def analyze_timeframe(symbol: str, interval: str, label: str) -> dict:
 
 
 def evaluate_consensus(results: list[dict], side: str = "buy") -> dict:
-    """Đánh giá đồng thuận đa khung thời gian."""
+    """
+    [v4.2] Đánh giá đồng thuận đa khung thời gian theo nguyên tắc
+    "Ông Bố Con Cháu" của Springtea — khung lớn nói, khung bé phải nghe.
+
+    Trọng số:  W=5 (Ông) | 3D=4 (Bố) | D1=3 (Mẹ) | H12=2 (Anh) | H4=1 (Cháu)
+
+    Bias per frame: BUY / SELL / NEUTRAL dựa trên:
+      - Signal (P1/P2/P3) → mạnh nhất
+      - RSI position vs EMA/WMA → vừa
+      - RSI delta → bổ trợ
+    """
     signal_key = "buy_signal" if side == "buy" else "sell_signal"
+    opposite_key = "sell_signal" if side == "buy" else "buy_signal"
+
+    # ── Trọng số theo Springtea hierarchy ──
+    WEIGHTS = {"W": 5, "3D": 4, "D1": 3, "H12": 2, "H4": 1}  # tổng = 15
 
     large_frames = [r for r in results if r["label"] in ("W", "3D")]
     mid_frames = [r for r in results if r["label"] in ("D1", "H12")]
@@ -1001,6 +1015,99 @@ def evaluate_consensus(results: list[dict], side: str = "buy") -> dict:
         if side == "sell" and r["rsi"] is not None and r["rsi"] > 80:
             violations.append(f"⛔ {r['label']}: RSI={r['rsi']:.2f} > 80 → CẤM SHORT!")
 
+    # ── Xác định bias (xu hướng) từng khung ──
+    # BUY=+1, SELL=-1, NEUTRAL=0
+    frame_biases = {}
+    for r in results:
+        label = r["label"]
+        bias = 0.0
+
+        # 1. Signal trực tiếp → trọng số mạnh nhất
+        if r[signal_key] != "NONE":
+            sig = r[signal_key]
+            if sig == "POINT_3":
+                bias += 1.0
+            elif sig == "POINT_2":
+                bias += 0.7
+            elif sig == "POINT_1_ZONE":
+                bias += 0.4
+            elif sig == "APPROACHING":
+                bias += 0.3
+
+        # Tín hiệu ngược lại
+        if r[opposite_key] != "NONE":
+            opp = r[opposite_key]
+            if opp == "POINT_3":
+                bias -= 1.0
+            elif opp == "POINT_2":
+                bias -= 0.7
+            elif opp == "POINT_1_ZONE":
+                bias -= 0.4
+
+        # 2. Vị trí RSI vs EMA/WMA (bổ trợ)
+        if r.get("rsi_above_ema") is not None and r.get("rsi_above_wma") is not None:
+            if side == "buy":
+                if r["rsi_above_ema"] and r["rsi_above_wma"]:
+                    bias += 0.2
+                elif not r["rsi_above_ema"] and not r["rsi_above_wma"]:
+                    bias -= 0.2
+            else:  # sell
+                if not r["rsi_above_ema"] and not r["rsi_above_wma"]:
+                    bias += 0.2
+                elif r["rsi_above_ema"] and r["rsi_above_wma"]:
+                    bias -= 0.2
+
+        # 3. RSI delta (hướng di chuyển)
+        delta = r.get("rsi_delta")
+        if delta is not None:
+            if side == "buy":
+                bias += 0.1 if delta > 0 else -0.1 if delta < 0 else 0
+            else:
+                bias += 0.1 if delta < 0 else -0.1 if delta > 0 else 0
+
+        # Clamp: -1.0 → +1.0
+        bias = max(-1.0, min(1.0, bias))
+        frame_biases[label] = bias
+
+    # ── Tính weighted score ──
+    weighted_score = 0.0
+    max_score = 0.0
+    for label, bias in frame_biases.items():
+        w = WEIGHTS.get(label, 1)
+        weighted_score += w * bias
+        max_score += w  # max possible = 15
+
+    # Normalize: -100 → +100
+    weighted_pct = (weighted_score / max_score * 100) if max_score > 0 else 0
+
+    # ── Phát hiện xung đột ông-cháu ──
+    conflicts = []
+    hierarchy_labels = {"W": "Ông (W)", "3D": "Bố (3D)", "D1": "Mẹ (D1)",
+                        "H12": "Anh (H12)", "H4": "Cháu (H4)"}
+
+    for big_label in ["W", "3D"]:
+        big_bias = frame_biases.get(big_label)
+        if big_bias is None:
+            continue
+        for small_label in ["H12", "H4"]:
+            small_bias = frame_biases.get(small_label)
+            if small_bias is None:
+                continue
+            # Xung đột: ông nói ngược cháu
+            if big_bias < -0.3 and small_bias > 0.3:
+                conflicts.append(
+                    f"⚠️ {hierarchy_labels[big_label]} đang nghiêng SELL "
+                    f"nhưng {hierarchy_labels[small_label]} nghiêng BUY "
+                    f"→ cháu đi ngược ông, rủi ro cao!"
+                )
+            elif big_bias > 0.3 and small_bias < -0.3:
+                conflicts.append(
+                    f"⚠️ {hierarchy_labels[big_label]} đang nghiêng BUY "
+                    f"nhưng {hierarchy_labels[small_label]} nghiêng SELL "
+                    f"→ cháu đi ngược ông, có thể chỉ là nhịp điều chỉnh."
+                )
+
+    # ── Đánh giá đồng thuận ──
     consensus_level = "KHÔNG ĐỒNG THUẬN"
     if total_with_signal >= 4:
         consensus_level = "ĐỒNG THUẬN RẤT MẠNH ✅✅✅"
@@ -1031,22 +1138,30 @@ def evaluate_consensus(results: list[dict], side: str = "buy") -> dict:
     mochi_key = "mochi_buy" if side == "buy" else "mochi_sell"
     mochi_signals = sum(1 for r in results if r.get(mochi_key))
 
-    # [v3] RSI delta — count how many frames have RSI rising (buy) or falling (sell)
-    rsi_rising_count = 0
-    rsi_falling_count = 0
-    for r in results:
-        delta = r.get("rsi_delta")
-        if delta is not None:
-            if delta > 0:
-                rsi_rising_count += 1
-            elif delta < 0:
-                rsi_falling_count += 1
+    # [v3] RSI delta
+    rsi_rising_count = sum(1 for r in results if (r.get("rsi_delta") or 0) > 0)
+    rsi_falling_count = sum(1 for r in results if (r.get("rsi_delta") or 0) < 0)
+
+    # ── Recommendation — ông nói phải nghe ──
+    w_bias = frame_biases.get("W", 0)
+    d3_bias = frame_biases.get("3D", 0)
 
     recommendation = "❌ KHÔNG VÀO LỆNH"
-    if total_with_signal >= 2 and has_signal(large_frames) and len(violations) == 0:
-        recommendation = f"✅ CÓ THỂ VÀO LỆNH {'BUY' if side == 'buy' else 'SELL'}"
-    elif total_with_signal >= 2 and len(violations) == 0:
-        recommendation = "⚠️ CÂN NHẮC — khung lớn chưa ủng hộ"
+    if len(violations) > 0:
+        recommendation = "⛔ VI PHẠM QUY TẮC — KHÔNG VÀO LỆNH"
+    elif w_bias < -0.3:
+        # Ông nói sell → cấm buy (hoặc ngược lại)
+        recommendation = "🚫 ÔNG (W) ĐANG NGƯỢC CHIỀU — KHÔNG VÀO LỆNH"
+    elif total_with_signal >= 2 and has_signal(large_frames):
+        if weighted_pct >= 40:
+            recommendation = f"✅ VÀO LỆNH {'BUY' if side == 'buy' else 'SELL'} — đồng thuận từ khung lớn"
+        else:
+            recommendation = f"✅ CÓ THỂ VÀO LỆNH {'BUY' if side == 'buy' else 'SELL'}"
+    elif total_with_signal >= 2:
+        if d3_bias < -0.3:
+            recommendation = "⚠️ CÂN NHẮC — Bố (3D) đang ngược chiều"
+        else:
+            recommendation = "⚠️ CÂN NHẮC — khung lớn chưa ủng hộ"
 
     return {
         "total_signals": total_with_signal,
@@ -1062,6 +1177,11 @@ def evaluate_consensus(results: list[dict], side: str = "buy") -> dict:
         "mochi_signals": mochi_signals,
         "rsi_rising_count": rsi_rising_count,
         "rsi_falling_count": rsi_falling_count,
+        # v4.2 — Ông Bố Con Cháu
+        "frame_biases": frame_biases,
+        "weighted_score": weighted_score,
+        "weighted_pct": weighted_pct,
+        "conflicts": conflicts,
     }
 
 
